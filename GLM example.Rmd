@@ -1,0 +1,145 @@
+## GLM example
+
+```{r}
+data <- read.table(file ="glm.txt", header=TRUE)
+data$duration <- factor(data$duration, levels=c("0-4","5-9","10-14","15-19","20-24","25-29"), ordered=TRUE)
+data$residence <- factor(data$residence, levels=c("Suva", "urban", "rural"))
+data$education <- factor(data$education, levels=c("none", "lower", "upper", "sec+"))
+ftable(xtabs(cbind(nChildren,nMother) ~ duration + residence + education, data))
+```
+## Data visualisation
+We show how the mean (or log mean) number of children per women how it depends on duration, residence and education.
+```{r}
+par(mfrow=c(2,3))
+plot(nChildren/nMother ~ duration, data)
+plot(nChildren/nMother ~ residence, data)
+plot(nChildren/nMother ~ education, data)
+plot(log(nChildren/nMother) ~ duration, data)
+plot(log(nChildren/nMother) ~ residence, data)
+plot(log(nChildren/nMother) ~ education, data)
+```
+
+We note that there is a strong positive relationship between duration (years married) and the mean (or log mean) number of children. It appears education of secondary+ decreases the mean (or log mean) number of children compared to the none, lower and upper education groups. Finally,it appears that the mean (or log mean) number of children is lower in Suva compared to urban and rural.
+
+##  Interaction plots
+
+We want to know if there are any two way interaction present between factors, so we make interaction plots between factors.
+```{r}
+par(mfrow=c(3,1))
+par(mar=c(4,4,1,4))
+with(data,interaction.plot(duration,residence,nChildren/nMother))
+with(data,interaction.plot(education,residence,nChildren/nMother))
+with(data,interaction.plot(duration,education,nChildren/nMother))
+
+par(mfrow=c(3,1))
+par(mar=c(4,4,1,4))
+with(data,interaction.plot(duration,residence,log(nChildren/nMother)))
+with(data,interaction.plot(education,residence,log(nChildren/nMother)))
+with(data,interaction.plot(duration,education,log(nChildren/nMother)))
+```
+
+There is a possible interaction between duration and education sec+ line is not quite "parallel" as the line dips downwards a little bit in 25-29 duration. Therefore it is probably best to include two ways interactions in the starting model are we are not 100% sure there is no interaction between factors.
+
+##  Choice of model/ Model fitting and Model selection
+
+The poisson model is ideal since the number of children are non-negative integer values. We fit a poisson regression model with NChildren as the response variable, but as we must take into account the difference in the number of mothers, we fit a rate model.  
+log$λ_i$=log($t_i)+x^T_i$β  
+This is off the form of a Poisson glm with log link.Note, we can fix the coefficient of a variable to 1 by using the offset function.
+
+The interactive Poisson rate model is fitted below.
+```{r}
+modeli <-glm(nChildren ~ offset(log(nMother)) + (duration + residence
+                        + education)^2, data, family=poisson)
+```
+Now we do stepwise selection using AIC to select a paresemoneous model.
+```{r}
+model<-step(modeli)
+summary(model)
+```
+In this model we see education, duration and residence effects remain but the interaction terms are removed from the model.
+
+## Checking for overdispersion
+
+Now we want to know if the model is adequate or not, we do this looking at the size of the deviance. Note, we compare the model deviance against a chi-squared distribution with degrees of freedom equal to n-p.
+```{r}
+pchisq(model$deviance,model$df.residual,lower.tail=FALSE)
+```
+The p value is greater than 0.05 so the model is adequate (i.e. the deviance is fine).
+
+Now we will check to see if there is any over dispersion, we estimate the phihat.
+```{r}
+(phihat<-sum(residuals(model,type = "pearson")^2/model$df.residual))
+```
+
+We see that phihat is not too large.(i.e. close to 1)
+We also note that given that the deviance was small(i.e. model was adequate), ignoring any over-dispersion should be okay.
+
+##  Diagnostics 
+
+Now we proceed to diagnostics tests.
+```{r}
+library(faraway)
+par(mfrow=c(4,2))
+par(mar=c(4,4,1,2))
+plot(predict(model,type = "link"),residuals(model),ylab = "Dev res",xlab = "eta hat")
+plot(predict(model,type = "link"),residuals(model,type="pearson"), ylab="Pearson",xlab = "eta hat")
+halfnorm(residuals(model),ylab = "Dev res")
+halfnorm(residuals(model,type = "pearson"),ylab="Pearson res")
+halfnorm(influence(model)$hat,ylab = "Leverage")
+halfnorm(rstudent(model),ylab = "Jackknife residual")
+halfnorm(cooks.distance(model),ylab="Cooks distance")
+```
+
+Plots of Deviance and Pearson residual vs eta_hat looks homoskedastic. This looks okay. We note the cooks distance for point 57 is very large, it seems like it has affected the fit. Also it should be pointed out that point 17 has a large jack-knife residual, but its cook's distance isn't large, therefore its seems it won't have a big impact on the fit.
+
+Now we will check the effect of removing point 57 from the model
+```{r}
+model_remove57<-glm(nChildren ~ offset(log(nMother))+(duration+education+residence)^2,data,family=poisson,subset=-57)
+model1_remove57<-step(model_remove57)
+summary(model1_remove57)
+```
+ We note the final model remains the same with parameter values being very similar.
+
+## Checking for over dispersion in model without point 57
+
+Now check the model adequacy. We do this looking at the size of the deviance. Note we compare the model deviance against a chi-squared distribution with df=n-p. The df in this test is one less than the chi squared test we did before when point 57 was still in the model.
+```{r}
+pchisq(model1_remove57$deviance,model1_remove57$df.residual, lower.tail = FALSE)
+```
+The p value is greater than 0.05 so the model is adequate (i.e. the deviance is fine). 
+
+Now we will check to see if there is any over dispersion, we estimate the phihat.
+```{r}
+(phihat<-sum(residuals(model1_remove57,type = "pearson")^2/model1_remove57$df.residual))
+```
+Again, we see that phihat is not too large.(i.e. close to 1)
+We also note that given that the deviance was small(i.e. model was adequate), ignoring any over-dispersion should be okay.
+
+## Diagnostics in model without point 57
+#Now do diagnostics again for new model without point 57
+```{r}
+par(mfrow=c(4,2))
+par(mar=c(4,4,1,2))
+plot(predict(model1_remove57,type = "link"),residuals(model1_remove57),ylab = "Dev res",xlab = "eta hat")
+plot(predict(model1_remove57,type = "link"),residuals(model1_remove57,type="pearson"), ylab="Pearson res",xlab = "eta hat")
+halfnorm(residuals(model1_remove57),ylab = "Dev res")
+halfnorm(influence(model1_remove57)$hat,ylab = "Leverage")
+halfnorm(residuals(model1_remove57,type = "pearson"),ylab="Pearson res")
+halfnorm(cooks.distance(model1_remove57),ylab="Cooks distance")
+halfnorm(rstudent(model1_remove57),ylab = "Jackknife residual") 
+```
+ Plots of Deviance and Pearson residual vs eta_hat look homoskedastic. This seems okay. It should be pointed out, as before, that point 17 has a large jack-knife residual, but its cook's distance isn't large, therefore its seems it won't have a big impact on the fit. Everything else looks okay. We proceed with this model.
+
+## Summary/Interpretation
+
+Our final model the model that excludes point 57.
+The mean number of children per woman estimates are $λ_{ijk}=exp(a +b_i+c_j+d_k)$.
+
+Duration since marriage:
+The mean number of Children per woman increase with duration, but the rate of increase declines over time. Note the coefficient of duration.L(5-9)is 1.48577, while the coefficient of duration.Q(10-14) is -0.52279 and the coefficient of duration.c(15-19) is 0.26981. This suggests the birth rate declines the longer a woman is married.
+
+Residence:
+Urban and rural families have more children than Suva families. On average an urban family will have exp(0.1111)=1.117518 times more children than Suva families and rural families will have on average exp(0.14451)=1.155473 times more children than Suva families. This suggests that location has a significant impact on family size, with urban and rural families having slightly more children compared to families in Suva.
+
+Level of education:
+Lower education doesn't affect the mean number of children a woman has (p value 0.13255) but upper education and secondary+ education significantly reduces the mean number of children compared to no education. A woman with upper education will have exp(-0.8855)=0.9152573 times as many children as a women with no education. While woman with secondary+ education have on average exp(-0.299)=0.741003 times as many children as a women with no education. This suggest higher levels of education are associated with lower fertility rates.
